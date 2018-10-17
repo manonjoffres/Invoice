@@ -76,9 +76,89 @@ public class DAO {
 	 * taille
 	 * @throws java.lang.Exception si la transaction a échoué
 	 */
-	public void createInvoice(CustomerEntity customer, int[] productIDs, int[] quantities)
-		throws Exception {
-		throw new UnsupportedOperationException("Pas encore implémenté");
+	public void createInvoice(CustomerEntity customer, int[] productIDs, int[] quantities) throws SQLException, Exception {  
+            String sql1 = "INSERT INTO Invoice(CustomerID) VALUES (?) ";  /* ID => clé générée auto
+                                                                            * Le trigger mettra à jour le total automatiquement          
+                                                                            */
+            String sql2 = "INSERT INTO Item(InvoiceID, Item, ProductID, Quantity, Cost) VALUES (?,?,?,?,?) ";
+            String sql3 = "SELECT Price AS PRIX FROM Product WHERE ID = ?";
+            
+             try (Connection myConnection = myDataSource.getConnection();
+                    // On prépare la requête en précisant qu'on veut récupérer les clés auto-générées
+                    PreparedStatement statement1 = myConnection.prepareStatement(sql1, Statement.RETURN_GENERATED_KEYS);  // On a besoin de la clé primaire de l'Invoice pour créer un Item
+                    PreparedStatement statement2 = myConnection.prepareStatement(sql2);
+                    PreparedStatement statement3 = myConnection.prepareStatement(sql3)) {           
+            
+                myConnection.setAutoCommit(false); // On démarre une transaction
+                try {
+                    
+                    /**----------------------------------------------------------------------------------**/
+                    // Table Invoice
+                    statement1.setInt(1, customer.getCustomerId());
+                        
+                     // On exécute la requête, la clé est auto-générée à ce moment là
+                    int numberUpdated1 = statement1.executeUpdate();
+                    
+                    if (numberUpdated1 != 1) {  // On n'a pas trouvé                        
+                        throw new Exception("Les valeurs n'ont pas été insérées ");
+                    }
+                    
+                    // Les clefs autogénérées sont retournées sous forme de ResultSet, 
+                    // car il se peut qu'une requête génère plusieurs clés
+                    ResultSet clefs = statement1.getGeneratedKeys(); 
+
+                    clefs.next(); // On lit la première clé générée
+                    int invoiceID = clefs.getInt(1);
+                    System.out.println("La première clef autogénérée vaut " + invoiceID);
+                   
+
+                    /**----------------------------------------------------------------------------------**/
+                    
+                    // Table Item (InvoiceID, Item, ProductID, Quantity, Cost)
+                    // Définir les paramètres éventuels de la requête                  
+                    for(int i = 0 ; i < productIDs.length ; i++) {
+                        int idProduit = productIDs[i];
+                        
+                        statement2.setInt(1, invoiceID);
+                        statement2.setInt(2, i);  // clé primaire Item
+                        statement2.setInt(3, idProduit);
+                        statement2.setInt(4, quantities[i]);
+                        
+                        /**----------------------------------------------------------------------------------**/
+                        /* Récupération du prix du produit en question */
+                        statement3.setInt(1, idProduit);
+                        float prix = 0f;
+                        
+                        try (ResultSet resultSet = statement3.executeQuery()) {
+				if (resultSet.next()) {
+                                    prix = resultSet.getFloat("PRIX");
+				}
+			}
+                        /**----------------------------------------------------------------------------------**/
+                        
+                        statement2.setFloat(5, prix);
+                     
+                        // On exécute la requête, la clé est auto-générée à ce moment là
+                        int numberUpdated2 = statement2.executeUpdate();
+                        if (numberUpdated2 != 1) // On n'a pas trouvé
+                        {
+                            throw new Exception("Les valeurs n'ont pas été insérées ");
+                        }
+                    }
+              
+                /**----------------------------------------------------------------------------------**/
+                // Tout s'est bien passé, on peut valider la transaction
+                    myConnection.commit();
+                } catch (Exception ex) {
+                    myConnection.rollback(); // On annule la transaction
+                    throw ex;
+                } finally { // On revient au mode de fonctionnement sans transaction
+                    myConnection.setAutoCommit(true);
+                }
+            }
+           
+
+            
 	}
 
 	/**
